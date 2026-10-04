@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: securechain
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install --include=dev --no-audit --no-fund && npm --prefix server install --omit=dev --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_SUPABASE_URL
+        value: https://qwtcxjfwibdgywziwoak.supabase.co
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_P8LmYnVpeLwQDH8TI7Gt9w_OXwgv5J0
+      - key: SUPABASE_URL
+        value: https://qwtcxjfwibdgywziwoak.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3dGN4amZ3aWJkZ3l3eml3b2FrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzODA5NjYsImV4cCI6MjEwNTk1Njk2Nn0.5Rnc_GbDa8vYx5J2Ci7fbz_NXy96W0Yx6DyOR3c6CnU
+      - key: SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_P8LmYnVpeLwQDH8TI7Gt9w_OXwgv5J0
+      - key: SUPABASE_BUCKET
+        value: files
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_WALLET_ADDRESS
+        sync: false
+      - key: FILE_ENCRYPTION_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://blockchain-pro.onrender.com
+      - key: ALLOW_GUEST_MODE
+        value: "false"
+      - key: MAX_FILE_SIZE_BYTES
+        value: "52428800"
+      - key: ETHEREUM_RPC_URL
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: CONTRACT_ADDRESS
+        sync: false
+      - key: ETHEREUM_NETWORK
+        value: sepolia
+      - key: PINATA_JWT
+        sync: false
