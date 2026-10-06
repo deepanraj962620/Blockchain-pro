@@ -1,6 +1,6 @@
 import React from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import { Web3Provider } from './Web3Context'
+import { Web3Provider, useWeb3 } from './Web3Context'
 import MainLayout from './components/MainLayout'
 import DashboardView from './views/DashboardView'
 import SendFileView from './views/SendFileView'
@@ -11,13 +11,11 @@ import SecurityView from './views/SecurityView'
 import ContactsView from './views/ContactsView'
 import SettingsView from './views/SettingsView'
 import CloudStorageView from './views/CloudStorageView'
-import './index.css'
-
+import SharedFileView from './views/SharedFileView'
 import LoginView from './views/LoginView'
-import { useWeb3 } from './Web3Context'
 import './index.css'
 
-function AppContent() {
+function AuthenticatedApp() {
   const { account } = useWeb3()
 
   if (!account) {
@@ -33,7 +31,7 @@ function AppContent() {
         <Route path="/chat" element={<ChatView />} />
         <Route path="/history" element={<HistoryView />} />
         <Route path="/security" element={<SecurityView />} />
-<Route path="/contacts" element={<ContactsView />} />
+        <Route path="/contacts" element={<ContactsView />} />
         <Route path="/settings" element={<SettingsView />} />
         <Route path="/cloud" element={<CloudStorageView />} />
       </Routes>
@@ -45,7 +43,10 @@ function App() {
   return (
     <Web3Provider>
       <Router>
-        <AppContent />
+        <Routes>
+          <Route path="/shared/:token" element={<SharedFileView />} />
+          <Route path="/*" element={<AuthenticatedApp />} />
+        </Routes>
       </Router>
     </Web3Provider>
   )

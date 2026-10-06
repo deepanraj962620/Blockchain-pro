@@ -27,11 +27,11 @@ services:
       - key: SUPABASE_BUCKET
         value: files
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
       - key: ADMIN_WALLET_ADDRESS
         sync: false
       - key: FILE_ENCRYPTION_SECRET
-        sync: false
+        generateValue: true
       - key: CORS_ORIGINS
         value: https://blockchain-pro.onrender.com
       - key: ALLOW_GUEST_MODE

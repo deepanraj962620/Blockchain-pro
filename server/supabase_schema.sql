@@ -1,12 +1,8 @@
 -- ============================================================
--- SecureChain — Supabase SQL Schema
+-- SecureChain — Supabase SQL Schema (Comprehensive)
 -- ============================================================
 -- Run this in your Supabase project's SQL Editor (Dashboard -> SQL)
--- to create all tables required by the backend.
---
--- IMPORTANT: The backend uses a server-side Supabase secret key (or legacy
--- service_role key). Never expose that key in the frontend. The backend
--- performs wallet-signature authentication before protected operations.
+-- to create/update all tables and storage bucket permissions required by the backend.
 
 -- ------------------------------------------------------------------
 -- messages
@@ -35,11 +31,19 @@ create table if not exists public.transfers (
   type text,
   color text,
   recipient text,
+  sender text,
   password text,
   "hasBlob" boolean default false,
   "filePath" text,
   "storagePath" text
 );
+
+-- Ensure all transfers columns exist if table already existed
+alter table if exists public.transfers add column if not exists sender text;
+alter table if exists public.transfers add column if not exists "filePath" text;
+alter table if exists public.transfers add column if not exists "storagePath" text;
+alter table if exists public.transfers add column if not exists "hasBlob" boolean default false;
+alter table if exists public.transfers add column if not exists password text;
 
 -- ------------------------------------------------------------------
 -- activities
@@ -68,7 +72,7 @@ create table if not exists public.contacts (
 create table if not exists public.cloud_files (
   id text primary key,
   name text,
-  size integer,
+  size bigint,
   type text,
   date text,
   timestamp bigint,
@@ -93,6 +97,26 @@ create table if not exists public.cloud_files (
   "storagePath" text
 );
 
+-- Ensure all cloud_files columns exist if table already existed
+alter table if exists public.cloud_files add column if not exists "filePath" text;
+alter table if exists public.cloud_files add column if not exists hash text;
+alter table if exists public.cloud_files add column if not exists encrypted boolean default true;
+alter table if exists public.cloud_files add column if not exists owner text;
+alter table if exists public.cloud_files add column if not exists cid text;
+alter table if exists public.cloud_files add column if not exists "txHash" text;
+alter table if exists public.cloud_files add column if not exists "ivHex" text;
+alter table if exists public.cloud_files add column if not exists "encryptionSeed" text;
+alter table if exists public.cloud_files add column if not exists deleted boolean default false;
+alter table if exists public.cloud_files add column if not exists verified boolean default false;
+alter table if exists public.cloud_files add column if not exists "shareToken" text;
+alter table if exists public.cloud_files add column if not exists "shareExpiry" text;
+alter table if exists public.cloud_files add column if not exists "sharePermission" text;
+alter table if exists public.cloud_files add column if not exists "sharedWith" text;
+alter table if exists public.cloud_files add column if not exists "sharedAt" text;
+alter table if exists public.cloud_files add column if not exists "userId" text;
+alter table if exists public.cloud_files add column if not exists "metadataStatus" text;
+alter table if exists public.cloud_files add column if not exists "blockchainStatus" text;
+alter table if exists public.cloud_files add column if not exists "storagePath" text;
 
 -- ------------------------------------------------------------------
 -- user_profiles (wallet <-> Supabase settings/profile)
@@ -110,16 +134,37 @@ create table if not exists public.user_profiles (
 );
 
 create index if not exists idx_cloud_files_owner on public.cloud_files(owner);
+create index if not exists idx_cloud_files_sharetoken on public.cloud_files("shareToken");
 create index if not exists idx_messages_sender_recipient on public.messages(sender, recipient);
 
--- ============================================================
--- Storage bucket
--- ============================================================
--- Create a PRIVATE storage bucket for encrypted files.
--- The backend auto-creates it if missing, but you can create it
--- here too for clarity. Go to Dashboard -> Storage -> New bucket,
--- name it "files", and keep visibility Private.
+-- ------------------------------------------------------------------
+-- Row Level Security (RLS) Permissions
+-- ------------------------------------------------------------------
+-- Authentication and authorization are enforced by the Node.js Express
+-- API using cryptographically verified MetaMask signatures. To prevent
+-- silent query rejections by Supabase RLS:
+alter table if exists public.messages disable row level security;
+alter table if exists public.transfers disable row level security;
+alter table if exists public.activities disable row level security;
+alter table if exists public.contacts disable row level security;
+alter table if exists public.cloud_files disable row level security;
+alter table if exists public.user_profiles disable row level security;
 
+-- ------------------------------------------------------------------
+-- Storage Bucket: files
+-- ------------------------------------------------------------------
 insert into storage.buckets (id, name, public)
 values ('files', 'files', false)
-on conflict (id) do nothing;
+on conflict (id) do update set public = false;
+
+-- Storage policies allowing both service_role and anon backend clients
+-- to store, download, and delete encrypted buffers in the 'files' bucket
+do $$
+begin
+  if not exists (select 1 from pg_policies where policyname = 'SecureChain Storage Service Policy' and tablename = 'objects') then
+    create policy "SecureChain Storage Service Policy"
+    on storage.objects for all
+    using (bucket_id = 'files')
+    with check (bucket_id = 'files');
+  end if;
+end $$;

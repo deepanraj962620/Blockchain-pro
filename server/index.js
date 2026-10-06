@@ -1,4 +1,5 @@
 try { process.loadEnvFile?.(require('path').join(__dirname, '.env')); } catch (_) {}
+try { process.loadEnvFile?.(require('path').join(__dirname, '..', '.env')); } catch (_) {}
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -137,9 +138,31 @@ io.on('connection', (socket) => {
 
 // --- API ENDPOINTS ---
 
-// Health Check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', database: db.isSupabaseConfigured() ? 'supabase' : 'not-configured', time: new Date().toISOString() });
+// Health & Diagnostics Check
+app.get('/api/health', async (req, res) => {
+  const shouldTest = req.query.test === 'true';
+  const dbStatus = db.isSupabaseConfigured() ? 'supabase' : 'in-memory-dev';
+  
+  if (shouldTest) {
+    const diagnostics = await db.testConnection();
+    return res.json({
+      status: diagnostics.connected || diagnostics.mode === 'in-memory' ? 'ok' : 'degraded',
+      database: dbStatus,
+      diagnostics,
+      time: new Date().toISOString()
+    });
+  }
+
+  res.json({
+    status: 'ok',
+    database: dbStatus,
+    time: new Date().toISOString()
+  });
+});
+
+app.get('/api/health/db', async (req, res) => {
+  const diagnostics = await db.testConnection();
+  res.json(diagnostics);
 });
 
 function normalizeWallet(value) {
@@ -245,11 +268,12 @@ app.get('/api/transfers', async (req, res) => {
 
 app.post('/api/transfers', upload.single('file'), async (req, res) => {
   console.log('Received transfer request:', req.body.name);
-  const { id, name, size, date, status, type, color, recipient, password, hasBlob } = req.body;
+  const { id, name, size, date, status, type, color, recipient, sender, password, hasBlob } = req.body;
   let filePath = req.file ? req.file.path : null;
   let storagePath = null;
   
   if (!id || !name) {
+    if (filePath) { try { fs.unlinkSync(filePath); } catch (_) {} }
     console.error('Missing required fields:', { id, name });
     return res.status(400).json({ error: 'Missing required fields: id and name' });
   }
@@ -257,8 +281,7 @@ app.post('/api/transfers', upload.single('file'), async (req, res) => {
   try {
     const passwordHash = hashTransferPassword(password);
 
-    // Render's local filesystem is ephemeral. Persist the uploaded blob in
-    // Supabase Storage when available, and keep local disk only as a fallback.
+    // Persist uploaded blob in Supabase Storage when available, keeping local disk as fallback.
     if (req.file) {
       const rawBuffer = fs.readFileSync(req.file.path);
       const stored = await uploadEncryptedBuffer(rawBuffer, req.file.originalname, {
@@ -271,12 +294,39 @@ app.post('/api/transfers', upload.single('file'), async (req, res) => {
       }
     }
 
-    await db.createTransfer({ id, name, size, date, status, type, color, recipient, password: passwordHash, hasBlob: hasBlob === 'true', filePath, storagePath });
+    await db.createTransfer({
+      id,
+      name,
+      size,
+      date,
+      status,
+      type,
+      color,
+      recipient,
+      sender: sender || req.user?.walletAddress || 'Anonymous',
+      password: passwordHash,
+      hasBlob: hasBlob === 'true',
+      filePath,
+      storagePath
+    });
+
     console.log('Transfer successfully saved to database:', name);
-    const transferData = { id, name, size, date, status, type, color, recipient, hasBlob: hasBlob === 'true' };
+    const transferData = {
+      id,
+      name,
+      size,
+      date,
+      status,
+      type,
+      color,
+      recipient,
+      sender: sender || req.user?.walletAddress || 'Anonymous',
+      hasBlob: hasBlob === 'true'
+    };
     io.to(recipient).emit('incoming-transfer', transferData);
     res.json({ success: true, id });
   } catch (err) {
+    if (filePath) { try { fs.unlinkSync(filePath); } catch (_) {} }
     console.error('Database error during transfer insert:', err.message);
     res.status(500).json({ error: err.message });
   }
@@ -619,6 +669,62 @@ app.post('/api/cloud/share/:id', authenticateUser, async (req, res) => {
     });
     addActivity('share', row.name, walletAddress, req.user?.id || 'guest').catch(console.error);
     res.json({ success: true, shareToken, shareUrl: `/shared/${shareToken}` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Retrieve public metadata for a shared file by token
+app.get('/api/cloud/shared/:shareToken', async (req, res) => {
+  try {
+    const { shareToken } = req.params;
+    const row = await db.getCloudFileByShareToken(shareToken);
+    if (!row || Number(row.deleted) === 1) {
+      return res.status(404).json({ error: 'Shared file not found or has been revoked' });
+    }
+    if (row.shareExpiry && new Date(row.shareExpiry).getTime() < Date.now()) {
+      return res.status(410).json({ error: 'This shared file link has expired' });
+    }
+
+    res.json({
+      id: row.id,
+      name: row.name,
+      size: row.size,
+      type: row.type,
+      date: row.date,
+      owner: row.owner,
+      verified: row.verified,
+      hash: row.hash,
+      sharedWith: row.sharedWith,
+      sharedAt: row.sharedAt,
+      sharePermission: row.sharePermission || 'read-only'
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Download a shared file by token (public link recipient download with decryption)
+app.get('/api/cloud/shared/download/:shareToken', async (req, res) => {
+  try {
+    const { shareToken } = req.params;
+    const row = await db.getCloudFileByShareToken(shareToken);
+    if (!row || Number(row.deleted) === 1) {
+      return res.status(404).json({ error: 'Shared file not found or has been revoked' });
+    }
+    if (row.shareExpiry && new Date(row.shareExpiry).getTime() < Date.now()) {
+      return res.status(410).json({ error: 'This shared file link has expired' });
+    }
+
+    const encryptionKey = deriveEncryptionKey(row.encryptionSeed || `${row.owner}:${row.name}:${row.id}`);
+    const encryptedBuffer = await readStoredBuffer({ storagePath: row.storagePath, localPath: row.filePath });
+    const decrypted = decryptBuffer(encryptedBuffer, encryptionKey);
+
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(row.name || 'shared-file')}`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.send(decrypted);
+
+    addActivity('download_shared', row.name, shareToken.substring(0, 8), row.owner).catch(console.error);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

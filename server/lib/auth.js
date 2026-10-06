@@ -1,9 +1,11 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET;
+let JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET is required. Set it in server/.env or your hosting environment.');
+  JWT_SECRET = crypto.randomBytes(32).toString('hex');
+  console.warn('\x1b[33m%s\x1b[0m', '⚠️  WARNING: JWT_SECRET is not set in environment variables! An ephemeral secret was generated for this session. Please set JWT_SECRET in Render environment or server/.env for persistent sessions across restarts.');
 }
 
 function signToken(payload) {

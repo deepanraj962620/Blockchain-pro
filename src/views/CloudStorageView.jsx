@@ -142,20 +142,23 @@ const CloudStorageView = () => {
   };
 
   const handleShare = async (id) => {
-    const walletAddress = window.prompt('Enter the wallet address to share with');
-    if (!walletAddress) return;
+    const walletAddress = window.prompt('Enter the wallet address to share with (or leave empty for public link):', '');
     try {
       const res = await fetch(`${apiUrl}/cloud/share/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ walletAddress, readOnly: true })
+        body: JSON.stringify({ walletAddress: walletAddress?.trim() || null, readOnly: true })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to share file');
-      alert(`Shared link ready: ${data.shareUrl}`);
+      const fullUrl = `${window.location.origin}${data.shareUrl}`;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(fullUrl).catch(() => {});
+      }
+      alert(`✅ Shared link ready & copied to clipboard!\n\n${fullUrl}\n\nAnyone with this link can view and download the encrypted file.`);
     } catch (e) {
       console.error('Share failed', e);
-      alert('Share failed.');
+      alert(`File sharing failed.\n\nError: ${e.message || 'Unknown server error'}`);
     }
   };
 

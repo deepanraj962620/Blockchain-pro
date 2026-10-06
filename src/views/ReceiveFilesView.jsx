@@ -105,7 +105,7 @@ const ReceiveFilesView = () => {
                       <span style={{ fontWeight: 600 }}>{file.name || 'Unknown File'}</span>
                     </div>
                   </td>
-                  <td style={{ padding: '16px 24px', fontSize: '0.875rem' }}>{file.from}</td>
+                  <td style={{ padding: '16px 24px', fontSize: '0.875rem' }}>{file.from || file.sender || 'Peer Wallet'}</td>
                   <td style={{ padding: '16px 24px', fontSize: '0.875rem' }}>{file.size}</td>
                   <td style={{ padding: '16px 24px' }}>
                     <span style={{ 

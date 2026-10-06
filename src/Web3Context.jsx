@@ -291,13 +291,15 @@ useEffect(() => {
     formData.append('type', file.name.split('.').pop() || 'file');
     formData.append('color', isP2pMode ? '#8b5cf6' : '#10b981'); // Purple for P2P, Green for Standard
     formData.append('recipient', recipient);
+    formData.append('sender', account || 'guest');
     formData.append('password', password || '');
     formData.append('hasBlob', 'true');
 
     try {
       // Post transfer to server
       const response = await fetch(`${apiUrl}/transfers`, { 
-        method: 'POST', 
+        method: 'POST',
+        headers: authHeaders(),
         body: formData 
       });
 
@@ -316,18 +318,20 @@ useEffect(() => {
         status: 'Confirmed', 
         type: formData.get('type'), 
         color: formData.get('color'), 
-        recipient, 
+        recipient,
+        sender: account || 'guest',
+        from: account || 'guest',
         password: Boolean(password), 
         hasBlob: true,
         isP2p: isP2pMode
       };
 
-      // Post activity to server
-      await fetch(`${apiUrl}/activities`, {
+      // Post activity to server (best-effort)
+      fetch(`${apiUrl}/activities`, {
         method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
+        headers: authHeaders({ 'Content-Type': 'application/json' }), 
         body: JSON.stringify(newActivity)
-      });
+      }).catch(console.warn);
 
       setTransfers(prev => [newTransfer, ...prev]);
       setActivities(prev => [newActivity, ...prev]);
@@ -340,7 +344,7 @@ useEffect(() => {
     } catch (err) {
       console.error("Transfer error:", err);
       const errorMsg = err.message || "Unknown error";
-      alert(`Failed to transfer "${file.name}".\n\nError: ${errorMsg}\n\nPlease ensure the backend server is running and reachable.`);
+      alert(`Failed to transfer "${file.name}".\n\nError: ${errorMsg}\n\nTip: If your backend is deployed on Render free tier, it may take 40-50 seconds to wake up from idle.`);
       return { success: false, error: err.message };
     }
   };

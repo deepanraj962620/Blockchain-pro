@@ -1,74 +1,134 @@
-# SecureChain — Production Deployment Guide (Vercel + Render + Supabase)
+# SecureChain — Perfect Production Deployment Guide
 
-This repository is optimized for web-wide file transfer using **Vercel** for the frontend, **Render / Railway** for the Node.js Express backend (WebSockets + PeerJS), and **Supabase** for PostgreSQL database and encrypted file storage.
-
----
-
-## 1. Supabase Database & Storage Setup
-
-1. Log in to [Supabase Console](https://supabase.com) and create a project.
-2. Open **SQL Editor** and execute `server/supabase_schema.sql` and `server/supabase_render_fix.sql`.
-3. Confirm these tables exist: `messages`, `transfers`, `activities`, `contacts`, `cloud_files`, `user_profiles`.
-4. Go to **Storage** and ensure a bucket named `files` is created. Keep it **private** (uncheck public).
+This repository is a Web3 wallet-authenticated, decentralized, AES-256 encrypted file transfer & cloud storage platform.
 
 ---
 
-## 2. Vercel Frontend Deployment
+## Architecture Breakdown
 
-1. Import your GitHub repository into [Vercel](https://vercel.com).
-2. Vercel will auto-detect **Vite** as the framework framework.
-3. Keep default build settings:
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-4. Add Environment Variables in Vercel settings:
-   - `VITE_API_URL` = `https://your-backend-app.onrender.com/api` (replace with your actual Render/Railway backend domain)
-   - `VITE_SUPABASE_URL` = `https://your-project.supabase.co`
-   - `VITE_SUPABASE_PUBLISHABLE_KEY` = `sb_publishable_...`
-5. Click **Deploy**. Vercel will build the React single-page application and route requests using `vercel.json`.
+To understand how the application deploys, review the three essential layers:
 
----
-
-## 3. Render / Railway Backend Deployment
-
-1. Create a **Web Service** on Render or Railway connected to the repository.
-2. Set Environment Variables:
-   ```text
-   NODE_ENV=production
-   PORT=10000
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_SECRET_KEY=sb_secret_...
-   SUPABASE_BUCKET=files
-   JWT_SECRET=generate-a-long-random-key
-   FILE_ENCRYPTION_SECRET=generate-a-long-random-key
-   CORS_ORIGINS=https://your-app.vercel.app
-   ALLOW_GUEST_MODE=false
-   MAX_FILE_SIZE_BYTES=52428800
-   ```
-3. Set Build & Start Commands:
-   - **Build Command**: `cd server && npm install --no-audit --no-fund`
-   - **Start Command**: `npm start`
-4. Health check endpoint: `/api/health`
-
----
-
-## 4. Wallet Authentication & Web3 Security
-
-1. User connects MetaMask on the Vercel frontend.
-2. Frontend requests `/api/auth/nonce` from the backend.
-3. User signs the login challenge message using their MetaMask private key.
-4. Backend verifies the signature on-chain using `ethers.verifyMessage` and issues a secure JWT token.
-5. No private key or seed phrase is ever sent or stored.
-
----
-
-## 5. Blockchain Smart Contract Anchoring (Optional)
-
-To enable on-chain recording of file hashes in `CloudStorage.sol`:
-Set these in your backend environment variables:
-```text
-ETHEREUM_RPC_URL=https://sepolia.infura.io/v3/YOUR_INFURA_KEY
-PRIVATE_KEY=YOUR_DEPLOYER_PRIVATE_KEY
-CONTRACT_ADDRESS=0x...
-ETHEREUM_NETWORK=sepolia
 ```
-If empty, the app will operate seamlessly using AES-encrypted Supabase cloud storage.
+┌────────────────────────────────────────┐
+│     1. React 19 / Vite Frontend        │
+│   (Web3 MetaMask, AES cipher, UI)      │
+└──────────────────┬─────────────────────┘
+                   │
+                   ▼ HTTP / WebSocket / Socket.IO
+┌────────────────────────────────────────┐
+│    2. Node.js Express API Server       │
+│  (Auth, Multer, PeerJS, Buffer crypto) │
+└──────────────────┬─────────────────────┘
+                   │
+                   ▼ PostgreSQL & Storage API
+┌────────────────────────────────────────┐
+│     3. Supabase Cloud Infrastructure   │
+│  (PostgreSQL tables & 'files' bucket)  │
+└────────────────────────────────────────┘
+```
+
+> [!IMPORTANT]
+> **Why your previous deployment had an API error:**  
+> In Supabase, there is no Node.js runtime. Supabase is a database and file storage engine. The Express backend (`server/index.js`) must be deployed as a **Web Service** (not a static site) so it can receive `/api/*` requests, verify MetaMask signatures, run WebSockets, and encrypt/decrypt file streams.
+
+---
+
+## ⚡ Deployment Plan A: Unified Fullstack on Render (Recommended & Simplest)
+
+In this plan, Render hosts **both** the frontend and the Express backend in a single Web Service.
+- Same-origin domain (no CORS problems)
+- Socket.IO and WebRTC PeerJS work on the same port
+- Single dashboard to manage
+
+### Step 1: Supabase Setup
+1. Log in to [Supabase](https://supabase.com) and create or open your project.
+2. Go to **SQL Editor** -> **New query**.
+3. Copy and run `server/supabase_schema.sql` (and `server/supabase_render_fix.sql`).
+4. Go to **Project Settings** -> **API** and copy:
+   - **Project URL** (`https://<project-ref>.supabase.co`)
+   - **service_role key** (or secret key `sb_secret_...`) — **DO NOT expose this publicly!**
+   - **anon key** (`eyJ...`)
+
+### Step 2: Render Web Service Setup
+1. In [Render Dashboard](https://dashboard.render.com), click **New +** -> **Web Service**.
+2. Connect your GitHub repository `Blockchain-pro`.
+3. Set the following settings:
+   - **Name**: `securechain` (or your chosen name)
+   - **Region**: Choose the closest region to your Supabase project
+   - **Branch**: `main`
+   - **Root Directory**: Leave blank (root `.`)
+   - **Runtime**: `Node`
+   - **Build Command**:
+     ```bash
+     npm install --include=dev --no-audit --no-fund && npm --prefix server install --omit=dev --no-audit --no-fund && npm run build
+     ```
+   - **Start Command**:
+     ```bash
+     npm start
+     ```
+   - **Plan**: `Free`
+
+4. Add **Environment Variables** in Render:
+   | Key | Value | Description |
+   |---|---|---|
+   | `NODE_ENV` | `production` | Production mode |
+   | `PORT` | `10000` | Render HTTP port |
+   | `SUPABASE_URL` | `https://<your-project>.supabase.co` | Supabase Project URL |
+   | `SUPABASE_SECRET_KEY` | `sb_secret_...` or service_role key | Grants backend full database & storage access |
+   | `SUPABASE_ANON_KEY` | `eyJ...` | Supabase anon key |
+   | `SUPABASE_BUCKET` | `files` | Storage bucket name |
+   | `JWT_SECRET` | *Click 'Generate' or enter long random string* | Session signing secret |
+   | `FILE_ENCRYPTION_SECRET` | *Click 'Generate' or enter long random string* | AES encryption master secret |
+   | `ALLOW_GUEST_MODE` | `false` | Requires wallet authentication |
+   | `MAX_FILE_SIZE_BYTES` | `52428800` | 50MB max file transfer size |
+   | `VITE_SUPABASE_URL` | `https://<your-project>.supabase.co` | Browser Supabase URL |
+   | `VITE_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` (or anon key) | Browser Supabase key |
+
+   *(Leave `VITE_API_URL` empty on Render because frontend and backend share the same origin).*
+
+5. Click **Deploy Web Service**.
+6. Once deployed, verify by opening `https://your-service.onrender.com/api/health?test=true` in your browser. You should see `"status": "ok"` and `"database": "supabase"`.
+
+---
+
+## 🚀 Deployment Plan B: Decoupled (Vercel Frontend + Render Backend + Supabase)
+
+Use this plan if you prefer hosting your React SPA on Vercel's global CDN while running the Node.js API on Render.
+
+### Step 1: Deploy Backend to Render
+Follow **Deployment Plan A**, but add:
+- `CORS_ORIGINS`: `https://your-app.vercel.app`
+
+Note your Render URL: e.g., `https://your-backend.onrender.com`.
+
+### Step 2: Deploy Frontend to Vercel
+1. In [Vercel](https://vercel.com), click **Add New** -> **Project** -> Import `Blockchain-pro`.
+2. Framework Preset: **Vite**.
+3. Build Settings:
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+4. Add Environment Variables in Vercel:
+   | Key | Value |
+   |---|---|
+   | `VITE_API_URL` | `https://your-backend.onrender.com/api` |
+   | `VITE_SUPABASE_URL` | `https://<your-project>.supabase.co` |
+   | `VITE_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` |
+5. Click **Deploy**.
+
+---
+
+## 🔍 How to Test File Sharing & Transfers
+
+1. **Connect Wallet**: Click "Connect Wallet" with MetaMask on Sepolia or Ethereum Mainnet (or use Guest Mode if enabled).
+2. **Send File**:
+   - Go to **Send File**.
+   - Select a test file and specify a recipient wallet address (e.g., `0x7B21c1f...a8F3`).
+   - Click **Send Securely**.
+   - The file is encrypted, uploaded to Supabase Storage, and logged to the transfers table.
+3. **Receive File**:
+   - Go to **Receive Files** to view incoming transfers and click **Download** to decrypt.
+4. **Cloud Storage & Link Sharing**:
+   - Go to **Cloud Storage** and upload a file.
+   - Click the **Share** button on any file.
+   - A secure link `https://your-domain.com/shared/<token>` is generated and copied to your clipboard.
+   - Open that link in an incognito window — the recipient can view the file and click **Download Decrypted File** directly without an API error!
