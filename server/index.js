@@ -12,7 +12,8 @@ const { PeerServer, ExpressPeerServer } = require('peer');
 const { verifyMessage, getAddress } = require('ethers');
 const { authenticateUser, requireRole, signToken } = require('./lib/auth');
 const { deriveEncryptionKey, encryptBuffer, decryptBuffer, computeFileHash, computeBufferHash, generateShareToken } = require('./lib/crypto');
-const { uploadEncryptedBuffer, readStoredBuffer, deleteStoredBuffer } = require('./lib/storage');
+const { uploadEncryptedBuffer, readStoredBuffer, deleteStoredBuffer, getActiveStorageProvider } = require('./lib/storage');
+const { isR2Configured, testR2Connection } = require('./lib/r2Client');
 const { recordFileOnChain } = require('./lib/blockchain');
 const { deleteMetadataFromSupabase } = require('./lib/supabase');
 const db = require('./lib/db');
@@ -142,13 +143,23 @@ io.on('connection', (socket) => {
 app.get('/api/health', async (req, res) => {
   const shouldTest = req.query.test === 'true';
   const dbStatus = db.isSupabaseConfigured() ? 'supabase' : 'in-memory-dev';
+  const storageProvider = getActiveStorageProvider();
   
   if (shouldTest) {
-    const diagnostics = await db.testConnection();
+    const dbDiagnostics = await db.testConnection();
+    const r2Diagnostics = await testR2Connection();
     return res.json({
-      status: diagnostics.connected || diagnostics.mode === 'in-memory' ? 'ok' : 'degraded',
+      status: dbDiagnostics.connected || dbDiagnostics.mode === 'in-memory' ? 'ok' : 'degraded',
       database: dbStatus,
-      diagnostics,
+      storage: {
+        activeProvider: storageProvider,
+        r2: r2Diagnostics,
+        supabaseStorage: dbDiagnostics.storage
+      },
+      diagnostics: {
+        db: dbDiagnostics,
+        r2: r2Diagnostics
+      },
       time: new Date().toISOString()
     });
   }
@@ -156,6 +167,11 @@ app.get('/api/health', async (req, res) => {
   res.json({
     status: 'ok',
     database: dbStatus,
+    storage: {
+      activeProvider: storageProvider,
+      r2Configured: isR2Configured(),
+      supabaseConfigured: db.isSupabaseConfigured()
+    },
     time: new Date().toISOString()
   });
 });
@@ -163,6 +179,20 @@ app.get('/api/health', async (req, res) => {
 app.get('/api/health/db', async (req, res) => {
   const diagnostics = await db.testConnection();
   res.json(diagnostics);
+});
+
+app.get('/api/health/storage', async (req, res) => {
+  const r2Diagnostics = await testR2Connection();
+  const dbDiagnostics = await db.testConnection();
+  res.json({
+    activeProvider: getActiveStorageProvider(),
+    cloudflareR2: r2Diagnostics,
+    supabaseStorage: {
+      configured: db.isSupabaseConfigured(),
+      connected: dbDiagnostics.storage,
+      bucket: dbDiagnostics.bucket
+    }
+  });
 });
 
 function normalizeWallet(value) {
@@ -538,7 +568,12 @@ app.get('/api/cloud', authenticateUser, async (req, res) => {
 app.get('/api/cloud/stats', authenticateUser, async (req, res) => {
   try {
     const stats = await db.getCloudStats(req.user?.walletAddress || req.user?.id || null);
-    res.json(stats);
+    const storageProvider = getActiveStorageProvider();
+    res.json({
+      ...stats,
+      storageProvider,
+      providerLabel: storageProvider === 'cloudflare-r2' ? 'Cloudflare R2 (10 GB Free Tier)' : (storageProvider === 'supabase-storage' ? 'Supabase Storage' : 'Local Storage')
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -600,6 +635,7 @@ const id = crypto.randomBytes(8).toString('hex');
         cid: storageResult.cid,
         txHash,
         metadataStatus: metadataProvider,
+        storageProvider: storageResult.provider,
         blockchainStatus: chainStatus
       });
     } catch (err) {

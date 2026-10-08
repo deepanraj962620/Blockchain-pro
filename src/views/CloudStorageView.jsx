@@ -190,15 +190,25 @@ const CloudStorageView = () => {
     return '#ef4444';
   };
 
-  const storageUsedPercent = Math.min((stats.totalBytes / (2 * 1024 * 1024 * 1024)) * 100, 100);
+  const maxStorageBytes = stats.storageProvider === 'cloudflare-r2' ? 10 * 1024 * 1024 * 1024 : 2 * 1024 * 1024 * 1024;
+  const maxStorageLabel = stats.storageProvider === 'cloudflare-r2' ? '10.0 GB (Cloudflare R2 Free Tier)' : '2.0 GB';
+  const storageUsedPercent = Math.min((stats.totalBytes / maxStorageBytes) * 100, 100);
 
   return (
     <div style={{ padding: '32px' }}>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '2rem', marginBottom: '8px' }}>Blockchain Cloud Storage</h1>
-        <p style={{ color: 'var(--text-muted)' }}>
-          Store files securely on the decentralized network. Each file is encrypted, hashed, and recorded on-chain.
-        </p>
+      <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <h1 style={{ fontSize: '2rem', marginBottom: '8px' }}>Blockchain Cloud Storage</h1>
+          <p style={{ color: 'var(--text-muted)' }}>
+            Store files securely on the decentralized network. Each file is encrypted, hashed, and recorded on-chain.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: stats.storageProvider === 'cloudflare-r2' ? '#eff6ff' : '#f0fdf4', border: `1px solid ${stats.storageProvider === 'cloudflare-r2' ? '#bfdbfe' : '#bbf7d0'}`, padding: '8px 14px', borderRadius: '10px' }}>
+          <Globe size={16} color={stats.storageProvider === 'cloudflare-r2' ? '#3b82f6' : '#10b981'} />
+          <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: stats.storageProvider === 'cloudflare-r2' ? '#1d4ed8' : '#15803d' }}>
+            {stats.providerLabel || (stats.storageProvider === 'cloudflare-r2' ? 'Cloudflare R2 (10 GB Free Tier)' : 'Cloud Storage Active')}
+          </span>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -235,8 +245,10 @@ const CloudStorageView = () => {
             <Globe size={24} />
           </div>
           <div className="stat-info">
-            <p>Network</p>
-            <h3 style={{ fontSize: '1rem', marginTop: '8px' }}>Decentralized</h3>
+            <p>Storage Tier</p>
+            <h3 style={{ fontSize: '0.85rem', marginTop: '8px', wordBreak: 'break-word' }}>
+              {stats.storageProvider === 'cloudflare-r2' ? 'R2 Free (10GB)' : 'Decentralized'}
+            </h3>
           </div>
         </div>
       </div>
@@ -245,17 +257,17 @@ const CloudStorageView = () => {
       <div className="card" style={{ padding: '20px', marginBottom: '24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ fontSize: '0.9375rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <HardDrive size={18} color="#10b981" /> Storage Usage
+            <HardDrive size={18} color="#10b981" /> Storage Usage ({stats.storageProvider === 'cloudflare-r2' ? 'Cloudflare R2 Free Tier' : 'Cloud Storage'})
           </h3>
           <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-            {formatBytes(stats.totalBytes)} / 2.0 GB
+            {formatBytes(stats.totalBytes)} / {maxStorageLabel}
           </span>
         </div>
         <div style={{ height: '10px', background: '#f1f5f9', borderRadius: '5px', overflow: 'hidden' }}>
           <div style={{
             height: '100%',
             width: `${storageUsedPercent}%`,
-            background: 'linear-gradient(90deg, #10b981, #059669)',
+            background: stats.storageProvider === 'cloudflare-r2' ? 'linear-gradient(90deg, #3b82f6, #1d4ed8)' : 'linear-gradient(90deg, #10b981, #059669)',
             borderRadius: '5px',
             transition: 'width 0.5s ease'
           }} />

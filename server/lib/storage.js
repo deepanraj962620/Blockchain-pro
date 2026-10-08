@@ -2,6 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { getSupabaseClient, isSupabaseConfigured } = require('./supabaseClient');
+const { 
+  isR2Configured, 
+  uploadBufferToR2, 
+  readBufferFromR2, 
+  deleteBufferFromR2 
+} = require('./r2Client');
 
 const uploadDir = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -19,25 +25,54 @@ function computeContentIdentifier(buffer) {
   return { contentHash, cid };
 }
 
-// Upload an encrypted buffer. When Supabase Storage is configured, upload the
-// blob to the configured bucket. Otherwise, write to the local filesystem.
-// Returns { cid, provider, localPath, fileName, contentHash, storagePath }.
+function getActiveStorageProvider() {
+  if (isR2Configured()) return 'cloudflare-r2';
+  if (isSupabaseConfigured()) return 'supabase-storage';
+  return 'local';
+}
+
+// Upload an encrypted buffer.
+// Priority:
+// 1. Cloudflare R2 (10GB free tier, 0 egress bandwidth fees)
+// 2. Supabase Storage (if configured)
+// 3. Local filesystem fallback
 async function uploadEncryptedBuffer(buffer, originalName, metadata = {}) {
   const fileName = `${Date.now()}-${safeFileName(originalName)}`;
   const { contentHash, cid } = computeContentIdentifier(buffer);
 
-  // --- Supabase Storage path ---
+  // --- 1. Cloudflare R2 Path (Primary when configured) ---
+  if (isR2Configured()) {
+    try {
+      const key = `uploads/${fileName}`;
+      const r2Result = await uploadBufferToR2({
+        key,
+        buffer,
+        contentType: metadata.contentType || 'application/octet-stream'
+      });
+
+      return {
+        cid,
+        provider: 'cloudflare-r2',
+        localPath: null,
+        fileName,
+        contentHash,
+        storagePath: r2Result.storagePath,
+        publicUrl: r2Result.publicUrl || null
+      };
+    } catch (err) {
+      console.warn('[Cloudflare R2] Upload failed, falling back to secondary storage.', err.message);
+    }
+  }
+
+  // --- 2. Supabase Storage Path ---
   if (isSupabaseConfigured()) {
     const { client, bucket } = getSupabaseClient();
-    // Ensure the bucket exists (best-effort).
     try {
       const { data: existing } = await client.storage.getBucket(bucket);
       if (!existing) {
         await client.storage.createBucket(bucket, { public: false });
       }
-    } catch (e) {
-      // Bucket may already exist; ignore.
-    }
+    } catch (_) {}
 
     try {
       const storagePath = `uploads/${fileName}`;
@@ -67,7 +102,7 @@ async function uploadEncryptedBuffer(buffer, originalName, metadata = {}) {
     }
   }
 
-  // --- Local filesystem fallback ---
+  // --- 3. Local filesystem fallback ---
   const localPath = path.join(uploadDir, fileName);
   fs.writeFileSync(localPath, buffer);
 
@@ -105,15 +140,24 @@ async function uploadEncryptedBuffer(buffer, originalName, metadata = {}) {
     provider: 'local',
     localPath,
     fileName,
-    contentHash
+    contentHash,
+    storagePath: null
   };
 }
 
 // Read an encrypted/decrypted buffer back from storage.
-// If storagePath is provided, tries Supabase Storage first.
-// Otherwise falls back to localPath on disk.
 async function readStoredBuffer({ storagePath, localPath }) {
-  if (storagePath && isSupabaseConfigured()) {
+  // If stored in Cloudflare R2
+  if (storagePath && storagePath.startsWith('r2://')) {
+    try {
+      return await readBufferFromR2(storagePath);
+    } catch (err) {
+      console.warn('[Cloudflare R2] Download failed, trying local fallback:', err.message);
+    }
+  }
+
+  // If stored in Supabase Storage
+  if (storagePath && isSupabaseConfigured() && !storagePath.startsWith('r2://')) {
     const { client, bucket } = getSupabaseClient();
     try {
       const { data, error } = await client.storage.from(bucket).download(storagePath);
@@ -126,18 +170,23 @@ async function readStoredBuffer({ storagePath, localPath }) {
     }
   }
 
+  // Local fallback
   if (localPath && fs.existsSync(localPath)) {
     return fs.readFileSync(localPath);
   }
 
-  throw new Error('File blob not found in storage');
+  throw new Error('File blob not found in storage (checked R2, Supabase, and local disk)');
 }
 
 // Delete a stored blob. Returns true if removed.
 async function deleteStoredBuffer({ storagePath, localPath }) {
   let removed = false;
 
-  if (storagePath && isSupabaseConfigured()) {
+  if (storagePath && storagePath.startsWith('r2://')) {
+    removed = await deleteBufferFromR2(storagePath);
+  }
+
+  if (storagePath && isSupabaseConfigured() && !storagePath.startsWith('r2://')) {
     const { client, bucket } = getSupabaseClient();
     try {
       const { error } = await client.storage.from(bucket).remove([storagePath]);
@@ -151,9 +200,7 @@ async function deleteStoredBuffer({ storagePath, localPath }) {
     try {
       fs.unlinkSync(localPath);
       removed = true;
-    } catch (e) {
-      // ignore
-    }
+    } catch (_) {}
   }
 
   return removed;
@@ -164,5 +211,6 @@ module.exports = {
   readStoredBuffer,
   deleteStoredBuffer,
   safeFileName,
-  computeContentIdentifier
+  computeContentIdentifier,
+  getActiveStorageProvider
 };

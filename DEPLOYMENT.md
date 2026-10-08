@@ -46,8 +46,18 @@ In this plan, Render hosts **both** the frontend and the Express backend in a si
 3. Copy and run `server/supabase_schema.sql` (and `server/supabase_render_fix.sql`).
 4. Go to **Project Settings** -> **API** and copy:
    - **Project URL** (`https://<project-ref>.supabase.co`)
-   - **service_role key** (or secret key `sb_secret_...`) — **DO NOT expose this publicly!**
    - **anon key** (`eyJ...`)
+
+### Step 1.5: Cloudflare R2 Setup (Recommended for 10 GB Free Tier & 0 Egress Fees)
+1. Log in to [Cloudflare Dashboard](https://dash.cloudflare.com/) and go to **R2 Object Storage**.
+2. Click **Create bucket**, name it `securechain-files`, and select your preferred region.
+3. On the R2 overview page, copy your **Account ID** from the right sidebar.
+4. Click **Manage R2 API Tokens** -> **Create API token**:
+   - Permissions: **Object Read & Write**
+   - Apply to bucket: `securechain-files` (or all buckets)
+   - Click **Create API Token**.
+5. Save your **Access Key ID** and **Secret Access Key**.
+6. (Optional): To enable direct public access, go to Bucket Settings -> Public Access -> enable Custom Domain or R2.dev subdomain.
 
 ### Step 2: Render Web Service Setup
 1. In [Render Dashboard](https://dashboard.render.com), click **New +** -> **Web Service**.
@@ -83,6 +93,15 @@ In this plan, Render hosts **both** the frontend and the Express backend in a si
    | `MAX_FILE_SIZE_BYTES` | `52428800` | 50MB max file transfer size |
    | `VITE_SUPABASE_URL` | `https://<your-project>.supabase.co` | Browser Supabase URL |
    | `VITE_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` (or anon key) | Browser Supabase key |
+
+   **Optional (Recommended): Cloudflare R2 10GB Free Tier Cloud Storage:**
+   | Key | Value | Description |
+   |---|---|---|
+   | `R2_ACCOUNT_ID` | `your-cloudflare-account-id` | Cloudflare Dashboard -> R2 -> Account ID |
+   | `R2_ACCESS_KEY_ID` | `your-r2-access-key-id` | From R2 API Token |
+   | `R2_SECRET_ACCESS_KEY` | `your-r2-secret-access-key` | From R2 API Token |
+   | `R2_BUCKET_NAME` | `securechain-files` | R2 bucket name |
+   | `R2_PUBLIC_DOMAIN` | `https://pub-xxx.r2.dev` *(optional)* | Custom domain or public R2 URL |
 
    *(Leave `VITE_API_URL` empty on Render because frontend and backend share the same origin).*
 

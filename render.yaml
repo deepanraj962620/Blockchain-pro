@@ -38,6 +38,16 @@ services:
         value: "false"
       - key: MAX_FILE_SIZE_BYTES
         value: "52428800"
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: securechain-files
+      - key: R2_PUBLIC_DOMAIN
+        sync: false
       - key: ETHEREUM_RPC_URL
         sync: false
       - key: PRIVATE_KEY
